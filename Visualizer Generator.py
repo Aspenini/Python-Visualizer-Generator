@@ -7,7 +7,7 @@ import logging
 from datetime import datetime
 import shutil
 from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QPushButton, 
-                            QLabel, QFileDialog, QComboBox, QProgressBar, QColorDialog)
+                            QLabel, QFileDialog, QComboBox, QProgressBar, QColorDialog, QSlider)
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QRect
 from PyQt6.QtGui import QPainter, QColor, QFont
 import sys
@@ -32,12 +32,14 @@ class Worker(QThread):
     finished = pyqtSignal(str)
     error = pyqtSignal(str)
 
-    def __init__(self, audio_file, fps, resolution, color):
+    def __init__(self, audio_file, fps, resolution, color, amplitude_scale, point_size):
         super().__init__()
         self.audio_file = audio_file
         self.fps = fps
         self.resolution = resolution
         self.color = color
+        self.amplitude_scale = amplitude_scale
+        self.point_size = point_size
 
     def compile_video(self, audio_path, output_video, num_frames_generated):
         try:
@@ -88,13 +90,13 @@ class Worker(QThread):
                 left_chunk = left_channel[start:end]
                 right_chunk = right_channel[start:end]
 
-                amplitude = np.mean(np.abs(left_chunk) + np.abs(right_chunk)) * 2
+                amplitude = np.mean(np.abs(left_chunk) + np.abs(right_chunk)) * self.amplitude_scale
                 theta = np.arctan2(right_chunk, left_chunk)
                 r = np.sqrt(left_chunk**2 + right_chunk**2) * (1 + amplitude)
 
                 fig = plt.figure(figsize=figsize, facecolor='black')
                 ax = fig.add_subplot(111, polar=True, facecolor='black')
-                ax.scatter(theta, r, s=10, c=[color_rgb], alpha=0.3, edgecolors='none')
+                ax.scatter(theta, r, s=self.point_size, c=[color_rgb], alpha=0.3, edgecolors='none')
                 ax.set_ylim(0, 2)
                 ax.set_yticks([])
                 ax.set_xticks([])
@@ -141,6 +143,8 @@ class GonioVisualizer(QWidget):
         self.setFixedSize(600, 800)
         self.audio_file = None
         self.color = QColor(0, 255, 0)
+        self.amplitude_scale = 2.0
+        self.point_size = 10
         self.clear_temp_frames()  # Clear temp frames on boot
         self.initUI()
 
@@ -187,6 +191,24 @@ class GonioVisualizer(QWidget):
         """)
         self.color_btn.clicked.connect(self.choose_color)
         layout.addWidget(self.color_btn)
+
+        self.amplitude_slider = QSlider(Qt.Orientation.Horizontal)
+        self.amplitude_slider.setMinimum(1)
+        self.amplitude_slider.setMaximum(10)
+        self.amplitude_slider.setValue(2)
+        self.amplitude_slider.setStyleSheet("QSlider { background-color: #3a3a3a; }")
+        self.amplitude_slider.valueChanged.connect(self.update_amplitude_scale)
+        layout.addWidget(QLabel("Amplitude Scale"))
+        layout.addWidget(self.amplitude_slider)
+
+        self.point_size_slider = QSlider(Qt.Orientation.Horizontal)
+        self.point_size_slider.setMinimum(1)
+        self.point_size_slider.setMaximum(50)
+        self.point_size_slider.setValue(10)
+        self.point_size_slider.setStyleSheet("QSlider { background-color: #3a3a3a; }")
+        self.point_size_slider.valueChanged.connect(self.update_point_size)
+        layout.addWidget(QLabel("Point Size"))
+        layout.addWidget(self.point_size_slider)
 
         self.process_btn = QPushButton("Process")
         self.process_btn.setStyleSheet("""
@@ -251,6 +273,12 @@ class GonioVisualizer(QWidget):
                 QPushButton:hover {{ background-color: {color.lighter(120).name()}; }}
             """)
 
+    def update_amplitude_scale(self, value):
+        self.amplitude_scale = value / 2.0
+
+    def update_point_size(self, value):
+        self.point_size = value
+
     def start_processing(self):
         fps = int(self.fps_combo.currentText().split()[0])
         res_text = self.res_combo.currentText()
@@ -263,7 +291,7 @@ class GonioVisualizer(QWidget):
         self.process_btn.setEnabled(False)
         self.progress.setValue(0)
 
-        self.worker = Worker(self.audio_file, fps, resolution, self.color)
+        self.worker = Worker(self.audio_file, fps, resolution, self.color, self.amplitude_scale, self.point_size)
         self.worker.progress.connect(self.progress.setValue)
         self.worker.finished.connect(self.on_finished)
         self.worker.error.connect(self.on_error)
