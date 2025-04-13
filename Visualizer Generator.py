@@ -12,18 +12,15 @@ from PyQt6.QtCore import Qt, QThread, pyqtSignal, QRect
 from PyQt6.QtGui import QPainter, QColor, QFont
 import sys
 
-# Define folders relative to script location
 script_dir = os.path.dirname(os.path.abspath(__file__))
 input_folder = os.path.join(script_dir, "input")
 output_folder = os.path.join(script_dir, "output")
 log_folder = os.path.join(script_dir, "error_logs")
 temp_folder = os.path.join(script_dir, "temp_frames")
 
-# Create folders if they don’t exist
 for folder in [input_folder, output_folder, log_folder, temp_folder]:
     os.makedirs(folder, exist_ok=True)
 
-# Set up logging
 log_file = os.path.join(log_folder, f"error_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt")
 logging.basicConfig(filename=log_file, level=logging.ERROR, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -32,7 +29,7 @@ class Worker(QThread):
     finished = pyqtSignal(str)
     error = pyqtSignal(str)
 
-    def __init__(self, audio_file, fps, resolution, color, amplitude_scale, point_size):
+    def __init__(self, audio_file, fps, resolution, color, amplitude_scale, point_size, video_format):
         super().__init__()
         self.audio_file = audio_file
         self.fps = fps
@@ -40,6 +37,7 @@ class Worker(QThread):
         self.color = color
         self.amplitude_scale = amplitude_scale
         self.point_size = point_size
+        self.video_format = video_format
 
     def compile_video(self, audio_path, output_video, num_frames_generated):
         try:
@@ -67,7 +65,7 @@ class Worker(QThread):
 
     def run(self):
         audio_path = os.path.join(input_folder, self.audio_file)
-        output_video = os.path.join(output_folder, f"{os.path.splitext(self.audio_file)[0]}_gonio.mp4")
+        output_video = os.path.join(output_folder, f"{os.path.splitext(self.audio_file)[0]}_gonio{self.video_format}")
         num_frames_generated = 0
 
         try:
@@ -84,6 +82,9 @@ class Worker(QThread):
             figsize = (width / 100, height / 100)
             color_rgb = (self.color.red() / 255, self.color.green() / 255, self.color.blue() / 255)
 
+            plt.rcParams['savefig.transparent'] = True
+            plt.rcParams['savefig.dpi'] = 200
+
             for i in range(num_frames):
                 start = i * frame_step
                 end = min(start + frame_step, len(left_channel))
@@ -94,22 +95,21 @@ class Worker(QThread):
                 theta = np.arctan2(right_chunk, left_chunk)
                 r = np.sqrt(left_chunk**2 + right_chunk**2) * (1 + amplitude)
 
-                fig = plt.figure(figsize=figsize, facecolor='black')
+                fig = plt.figure(figsize=figsize, facecolor='black', dpi=200)
                 ax = fig.add_subplot(111, polar=True, facecolor='black')
-                ax.scatter(theta, r, s=self.point_size, c=[color_rgb], alpha=0.3, edgecolors='none')
+                ax.scatter(theta, r, s=self.point_size, c=[color_rgb], alpha=0.5, edgecolors='none')
                 ax.set_ylim(0, 2)
                 ax.set_yticks([])
                 ax.set_xticks([])
                 ax.spines['polar'].set_visible(False)
-                plt.title(f"{self.audio_file} - {i/self.fps:.2f}s", color='white', fontsize=24, pad=40)
+                fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 
-                plt.savefig(os.path.join(temp_folder, f"frame_{i:05d}.png"), dpi=100, facecolor='black')
+                plt.savefig(os.path.join(temp_folder, f"frame_{i:05d}.png"), dpi=200, facecolor='black')
                 plt.close()
 
                 num_frames_generated += 1
                 self.progress.emit(int((i + 1) / num_frames * 100))
 
-            # Compile video after frame generation
             if num_frames_generated > 0 and os.path.exists(audio_path):
                 success = self.compile_video(audio_path, output_video, num_frames_generated)
                 if not success:
@@ -118,13 +118,11 @@ class Worker(QThread):
         except Exception as e:
             logging.error(f"Frame generation failed for {self.audio_file}: {str(e)}")
             self.error.emit(f"Error processing {self.audio_file}. Check log.")
-            # Attempt partial video compilation
             if num_frames_generated > 0 and os.path.exists(audio_path):
                 success = self.compile_video(audio_path, output_video, num_frames_generated)
                 if not success:
                     self.error.emit(f"Video compilation failed for {self.audio_file}. Check log.")
 
-        # Always clean up temp frames
         for file in os.listdir(temp_folder):
             if file.endswith('.png'):
                 os.remove(os.path.join(temp_folder, file))
@@ -140,12 +138,12 @@ class GonioVisualizer(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle('Gonio Visualizer')
-        self.setFixedSize(600, 800)
+        self.setFixedSize(600, 850)
         self.audio_file = None
         self.color = QColor(0, 255, 0)
         self.amplitude_scale = 2.0
         self.point_size = 10
-        self.clear_temp_frames()  # Clear temp frames on boot
+        self.clear_temp_frames()
         self.initUI()
 
     def initUI(self):
@@ -180,6 +178,11 @@ class GonioVisualizer(QWidget):
         self.res_combo.addItems(["720p (1280x720)", "1080p (1920x1080)", "4K (3840x2160)"])
         self.res_combo.setStyleSheet("QComboBox { background-color: #3a3a3a; border-radius: 10px; padding: 5px; }")
         layout.addWidget(self.res_combo)
+
+        self.format_combo = QComboBox()
+        self.format_combo.addItems(["MP4 (.mp4)", "MOV (.mov)", "AVI (.avi)"])
+        self.format_combo.setStyleSheet("QComboBox { background-color: #3a3a3a; border-radius: 10px; padding: 5px; }")
+        layout.addWidget(self.format_combo)
 
         self.color_btn = QPushButton("Choose Color")
         self.color_btn.setStyleSheet("""
@@ -244,9 +247,10 @@ class GonioVisualizer(QWidget):
             event.ignore()
 
     def dropEvent(self, event):
+        valid_exts = ['.mp3', '.wav', '.flac', '.ogg', '.m4a', '.aac']
         for url in event.mimeData().urls():
             file_path = url.toLocalFile()
-            if file_path.lower().endswith('.mp3'):
+            if any(file_path.lower().endswith(ext) for ext in valid_exts):
                 self.audio_file = os.path.basename(file_path)
                 shutil.copy(file_path, os.path.join(input_folder, self.audio_file))
                 self.label.setText(f"Selected: {self.audio_file}")
@@ -254,7 +258,7 @@ class GonioVisualizer(QWidget):
                 break
 
     def select_file(self):
-        file_path, _ = QFileDialog.getOpenFileName(self, "Select Audio File", "", "MP3 Files (*.mp3)")
+        file_path, _ = QFileDialog.getOpenFileName(self, "Select Audio File", "", "Audio Files (*.mp3 *.wav *.flac *.ogg *.m4a *.aac)")
         if file_path:
             self.audio_file = os.path.basename(file_path)
             shutil.copy(file_path, os.path.join(input_folder, self.audio_file))
@@ -288,10 +292,12 @@ class GonioVisualizer(QWidget):
             "4K": (3840, 2160)
         }[res_text.split()[0]]
 
+        format_ext = self.format_combo.currentText().split()[-1].strip("()")
+
         self.process_btn.setEnabled(False)
         self.progress.setValue(0)
 
-        self.worker = Worker(self.audio_file, fps, resolution, self.color, self.amplitude_scale, self.point_size)
+        self.worker = Worker(self.audio_file, fps, resolution, self.color, self.amplitude_scale, self.point_size, format_ext)
         self.worker.progress.connect(self.progress.setValue)
         self.worker.finished.connect(self.on_finished)
         self.worker.error.connect(self.on_error)
