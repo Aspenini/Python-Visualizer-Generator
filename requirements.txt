@@ -1,0 +1,6 @@
+PyQt6
+matplotlib
+numpy
+librosa
+ffmpeg-python
+pyinstaller

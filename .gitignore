@@ -1,38 +1,12 @@
-# macOS system files
-.DS_Store
-.AppleDouble
-.LSOverride
+# application files
+/input/
+/output/
+/temp_frames/
+/error_logs/
 
-# Xcode build system
-build/
-DerivedData/
-*.xcworkspace
-*.xcuserstate
-*.xcuserdatad
-*.xcsettings
-*.xcodeproj/project.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings
-
-# Swift Package Manager
-.swiftpm/
-Package.resolved
-
-# Python venv
-venv/
-
-# Python cache
-__pycache__/
-*.py[cod]
-*.pyo
-*.log
-
-# VizLab app-generated files
-VizLab/output/
-VizLab/input/
-VizLab/error_logs/
-VizLab/temp_frames/
-
-# Editor files
-.vscode/
-.idea/
-*.sublime-workspace
-*.sublime-project
+# compilation & python
+/build/
+/dist/
+/venv/
+/__pycache__/
+*.spec
